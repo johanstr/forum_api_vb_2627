@@ -164,3 +164,7 @@ Elke response stuurt `Access-Control-Allow-Origin: *`. Een `OPTIONS`-request (pr
 - Er wordt niet gecontroleerd of `user_id` echt bestaat. De database heeft ook geen foreign keys.
 - Er is (nog) geen endpoint voor `users`.
 - Als je een thread of topic verwijdert, blijven de bijbehorende topics en replies bestaan.
+
+# Lesboek
+Het lesboek, welke je in de repo aantreft komt niet geheel met de code in deze repo overeen.  
+Zo is bijvoorbeeld de file ***.htaccess*** aangepast t.o.v. de uitwerking in het lesboek.  
