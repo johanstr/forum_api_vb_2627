@@ -1,7 +1,9 @@
 # Forum API
 
 Een REST API voor een forum, geschreven in vanilla PHP (zonder framework). De API werkt met drie resources: **threads**, **topics** (binnen een thread) en **replies** (binnen een topic). Alle responses zijn JSON.
-
+  
+# *LET OP!!!!* Dit is slechts een voorbeeld. Het is niet bedoeld om dit te gebruiken in een productieomgeving.  
+Dit is niet een veilige API. Niet alle belangrijke gegevens zijn veilig, en er is geen authenticatie of autorisatie. Het is alleen bedoeld om te laten zien hoe je een REST API kunt schrijven in PHP, en hoe je dat kunt testen met een API-client.  
 ## Vereisten
 
 - PHP 8.1 of hoger, met de extensies `pdo` en `json`
