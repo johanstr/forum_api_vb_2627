@@ -1,0 +1,698 @@
+openapi: 3.0.3
+
+info:
+  title: Forum API
+  version: "1.0"
+  description: |
+    REST API voor een forum met drie resources: **threads**, **topics** (binnen een thread) en
+    **replies** (binnen een topic).
+
+    > **Let op:** dit is een lesvoorbeeld en niet bedoeld voor productie. Er is geen authenticatie:
+    > iedereen kan records aanmaken, aanpassen en verwijderen. Met **Try it out** voer je echte
+    > requests uit op de database.
+
+    ## Responses
+
+    Elke response is JSON en heeft een `meta`-deel. Bij succes staat het resultaat in `data`,
+    bij een fout staat er een `error` in.
+
+    ```json
+    { "meta": { "api_version": "1.0", "api_name": "forum_api", "status": 200, "status_message": "OK" },
+      "data": { "id": 1, "title": "..." } }
+    ```
+
+    Bij een lijst bevat `meta` ook `count`. Bij `204 No Content` (na een DELETE) is er geen body:
+    roep in JavaScript dan **niet** `response.json()` aan.
+
+    ## Request body
+
+    Stuur de body als JSON (`Content-Type: application/json`) of als formulierdata
+    (`application/x-www-form-urlencoded`). Velden die de API niet kent, worden genegeerd.
+    `id`, `created_at` en `updated_at` vult de API zelf in.
+
+    ## Validatiefouten
+
+    Bij een `422` staat per veld een foutmelding in `error.details`. Die kun je direct onder
+    het juiste formulierveld tonen:
+
+    ```js
+    const res = await fetch(`${API}/threads`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: '', content: 'Hallo', user_id: 1 }),
+    });
+    const json = await res.json();
+
+    if (res.status === 422) {
+      console.log(json.error.details); // { title: "Het veld title is verplicht." }
+    }
+    ```
+
+    ## Goed om te weten
+
+    - **Geen filters of paginering.** `GET /topics` geeft *alle* topics terug. Wil je de topics
+      van één thread, filter dan zelf op `thread_id`; hetzelfde geldt voor replies en `topic_id`.
+    - **Geen users-endpoint.** `user_id` is alleen een getal; de API controleert niet of die
+      gebruiker bestaat.
+    - **Geen cascade bij DELETE.** Als je een thread verwijdert, blijven de topics en replies
+      bestaan.
+    - **Datums** hebben het formaat `YYYY-MM-DD HH:MM:SS` (geen ISO 8601 en geen tijdzone).
+      `updated_at` is `null` bij records die nooit zijn aangepast.
+    - **Verkeerde methode:** een methode die niet bij de URL hoort (bijv. `PUT /threads` zonder
+      id) geeft `405 Method Not Allowed`; de header `Allow` noemt de methodes die wél kunnen.
+      Een URL die helemaal niet bestaat geeft `404`.
+    - **CORS** staat open (`Access-Control-Allow-Origin: *`), dus je kunt de API vanaf elk
+      domein aanroepen.
+
+servers:
+  - url: https://forum-api-vb.local
+    description: Lokale ontwikkelomgeving
+
+# Geen authenticatie: alle endpoints zijn openbaar
+security: []
+
+tags:
+  - name: threads
+    description: De hoofdonderwerpen van het forum.
+  - name: topics
+    description: Discussies binnen een thread (`thread_id`).
+  - name: replies
+    description: Reacties op een topic (`topic_id`).
+
+paths:
+  /threads:
+    get:
+      tags: [threads]
+      summary: Alle threads ophalen
+      operationId: listThreads
+      description: Hetzelfde resultaat krijg je met `GET /`.
+      responses:
+        "200":
+          description: Lijst met alle threads.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Thread" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [threads]
+      summary: Thread aanmaken
+      operationId: createThread
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ThreadInput" }
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/ThreadInput" }
+      responses:
+        "201":
+          $ref: "#/components/responses/ThreadCreated"
+        "400": { $ref: "#/components/responses/InvalidJson" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /threads/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [threads]
+      summary: Eén thread ophalen
+      operationId: getThread
+      responses:
+        "200": { $ref: "#/components/responses/ThreadSingle" }
+        "400": { $ref: "#/components/responses/InvalidId" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    put:
+      tags: [threads]
+      summary: Thread volledig aanpassen
+      operationId: replaceThread
+      description: Alle velden zijn verplicht. Wil je één veld aanpassen, gebruik dan `PATCH`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ThreadInput" }
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/ThreadInput" }
+      responses:
+        "200": { $ref: "#/components/responses/ThreadSingle" }
+        "400": { $ref: "#/components/responses/InvalidIdOrJson" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    patch:
+      tags: [threads]
+      summary: Thread gedeeltelijk aanpassen
+      operationId: updateThread
+      description: |
+        Alleen de meegestuurde velden worden aangepast. Stuur minstens één bekend veld mee;
+        een meegestuurd veld mag niet leeg zijn.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ThreadPatch" }
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/ThreadPatch" }
+      responses:
+        "200": { $ref: "#/components/responses/ThreadSingle" }
+        "400": { $ref: "#/components/responses/InvalidIdOrJson" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    delete:
+      tags: [threads]
+      summary: Thread verwijderen
+      operationId: deleteThread
+      description: De topics en replies van deze thread worden **niet** mee verwijderd.
+      responses:
+        "204": { $ref: "#/components/responses/Deleted" }
+        "400": { $ref: "#/components/responses/InvalidId" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /topics:
+    get:
+      tags: [topics]
+      summary: Alle topics ophalen
+      operationId: listTopics
+      description: |
+        Geeft alle topics van alle threads terug. Filter zelf op `thread_id`:
+
+        ```js
+        const topics = json.data.filter(topic => topic.thread_id === threadId);
+        ```
+      responses:
+        "200":
+          description: Lijst met alle topics.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Topic" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [topics]
+      summary: Topic aanmaken
+      operationId: createTopic
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TopicInput" }
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/TopicInput" }
+      responses:
+        "201":
+          $ref: "#/components/responses/TopicCreated"
+        "400": { $ref: "#/components/responses/InvalidJson" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /topics/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [topics]
+      summary: Eén topic ophalen
+      operationId: getTopic
+      responses:
+        "200": { $ref: "#/components/responses/TopicSingle" }
+        "400": { $ref: "#/components/responses/InvalidId" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    put:
+      tags: [topics]
+      summary: Topic volledig aanpassen
+      operationId: replaceTopic
+      description: Alle velden zijn verplicht. Wil je één veld aanpassen, gebruik dan `PATCH`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TopicInput" }
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/TopicInput" }
+      responses:
+        "200": { $ref: "#/components/responses/TopicSingle" }
+        "400": { $ref: "#/components/responses/InvalidIdOrJson" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    patch:
+      tags: [topics]
+      summary: Topic gedeeltelijk aanpassen
+      operationId: updateTopic
+      description: |
+        Alleen de meegestuurde velden worden aangepast. Stuur minstens één bekend veld mee;
+        een meegestuurd veld mag niet leeg zijn. Zo verplaats je een topic naar een andere thread:
+        `{ "thread_id": 3 }`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TopicPatch" }
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/TopicPatch" }
+      responses:
+        "200": { $ref: "#/components/responses/TopicSingle" }
+        "400": { $ref: "#/components/responses/InvalidIdOrJson" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    delete:
+      tags: [topics]
+      summary: Topic verwijderen
+      operationId: deleteTopic
+      description: De replies van dit topic worden **niet** mee verwijderd.
+      responses:
+        "204": { $ref: "#/components/responses/Deleted" }
+        "400": { $ref: "#/components/responses/InvalidId" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /replies:
+    get:
+      tags: [replies]
+      summary: Alle replies ophalen
+      operationId: listReplies
+      description: |
+        Geeft alle replies van alle topics terug. Filter zelf op `topic_id`:
+
+        ```js
+        const replies = json.data.filter(reply => reply.topic_id === topicId);
+        ```
+      responses:
+        "200":
+          description: Lijst met alle replies.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Reply" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [replies]
+      summary: Reply aanmaken
+      operationId: createReply
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReplyInput" }
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/ReplyInput" }
+      responses:
+        "201":
+          $ref: "#/components/responses/ReplyCreated"
+        "400": { $ref: "#/components/responses/InvalidJson" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /replies/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [replies]
+      summary: Eén reply ophalen
+      operationId: getReply
+      responses:
+        "200": { $ref: "#/components/responses/ReplySingle" }
+        "400": { $ref: "#/components/responses/InvalidId" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    put:
+      tags: [replies]
+      summary: Reply volledig aanpassen
+      operationId: replaceReply
+      description: Alle velden zijn verplicht. Wil je één veld aanpassen, gebruik dan `PATCH`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReplyInput" }
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/ReplyInput" }
+      responses:
+        "200": { $ref: "#/components/responses/ReplySingle" }
+        "400": { $ref: "#/components/responses/InvalidIdOrJson" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    patch:
+      tags: [replies]
+      summary: Reply gedeeltelijk aanpassen
+      operationId: updateReply
+      description: |
+        Alleen de meegestuurde velden worden aangepast. Stuur minstens één bekend veld mee;
+        een meegestuurd veld mag niet leeg zijn.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReplyPatch" }
+          application/x-www-form-urlencoded:
+            schema: { $ref: "#/components/schemas/ReplyPatch" }
+      responses:
+        "200": { $ref: "#/components/responses/ReplySingle" }
+        "400": { $ref: "#/components/responses/InvalidIdOrJson" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    delete:
+      tags: [replies]
+      summary: Reply verwijderen
+      operationId: deleteReply
+      responses:
+        "204": { $ref: "#/components/responses/Deleted" }
+        "400": { $ref: "#/components/responses/InvalidId" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      description: Het id van het record (positief geheel getal).
+      schema:
+        type: integer
+        minimum: 1
+      example: 1
+
+  schemas:
+    # ---------- Velden die bij alle records terugkomen ----------
+    Timestamps:
+      type: object
+      required: [created_at, updated_at]
+      properties:
+        created_at:
+          type: string
+          description: Moment van aanmaken, formaat `YYYY-MM-DD HH:MM:SS`.
+          example: "2026-10-02 12:00:00"
+        updated_at:
+          type: string
+          nullable: true
+          description: Moment van de laatste aanpassing; `null` als het record nooit is aangepast.
+          example: null
+
+    # ---------- Thread ----------
+    Thread:
+      allOf:
+        - type: object
+          required: [id, title, content, user_id]
+          properties:
+            id: { type: integer, example: 1 }
+            title: { type: string, maxLength: 100, example: "Welkom op het forum" }
+            content: { type: string, example: "Stel jezelf hier voor." }
+            user_id: { type: integer, example: 5 }
+        - $ref: "#/components/schemas/Timestamps"
+    ThreadInput:
+      type: object
+      required: [title, content, user_id]
+      properties:
+        title: { type: string, maxLength: 100, example: "Welkom op het forum" }
+        content: { type: string, example: "Stel jezelf hier voor." }
+        user_id: { type: integer, minimum: 1, example: 5 }
+    ThreadPatch:
+      type: object
+      minProperties: 1
+      properties:
+        title: { type: string, maxLength: 100, example: "Nieuwe titel" }
+        content: { type: string }
+        user_id: { type: integer, minimum: 1 }
+
+    # ---------- Topic ----------
+    Topic:
+      allOf:
+        - type: object
+          required: [id, title, content, thread_id, user_id]
+          properties:
+            id: { type: integer, example: 1 }
+            title: { type: string, maxLength: 100, example: "Even voorstellen" }
+            content: { type: string, example: "Hoi, ik ben nieuw hier!" }
+            thread_id: { type: integer, example: 1 }
+            user_id: { type: integer, example: 5 }
+        - $ref: "#/components/schemas/Timestamps"
+    TopicInput:
+      type: object
+      required: [title, content, thread_id, user_id]
+      properties:
+        title: { type: string, maxLength: 100, example: "Even voorstellen" }
+        content: { type: string, example: "Hoi, ik ben nieuw hier!" }
+        thread_id:
+          type: integer
+          minimum: 1
+          description: Moet verwijzen naar een bestaande thread.
+          example: 1
+        user_id: { type: integer, minimum: 1, example: 5 }
+    TopicPatch:
+      type: object
+      minProperties: 1
+      properties:
+        title: { type: string, maxLength: 100, example: "Nieuwe titel" }
+        content: { type: string }
+        thread_id:
+          type: integer
+          minimum: 1
+          description: Moet verwijzen naar een bestaande thread.
+        user_id: { type: integer, minimum: 1 }
+
+    # ---------- Reply ----------
+    Reply:
+      allOf:
+        - type: object
+          required: [id, content, topic_id, user_id]
+          properties:
+            id: { type: integer, example: 1 }
+            content: { type: string, example: "Welkom!" }
+            topic_id: { type: integer, example: 1 }
+            user_id: { type: integer, example: 5 }
+        - $ref: "#/components/schemas/Timestamps"
+    ReplyInput:
+      type: object
+      required: [content, topic_id, user_id]
+      properties:
+        content: { type: string, example: "Welkom!" }
+        topic_id:
+          type: integer
+          minimum: 1
+          description: Moet verwijzen naar een bestaand topic.
+          example: 1
+        user_id: { type: integer, minimum: 1, example: 5 }
+    ReplyPatch:
+      type: object
+      minProperties: 1
+      properties:
+        content: { type: string, example: "Aangepaste reactie" }
+        topic_id:
+          type: integer
+          minimum: 1
+          description: Moet verwijzen naar een bestaand topic.
+        user_id: { type: integer, minimum: 1 }
+
+    # ---------- Envelope ----------
+    Meta:
+      type: object
+      required: [api_version, api_name, status, status_message]
+      properties:
+        api_version: { type: string, example: "1.0" }
+        api_name: { type: string, example: "forum_api" }
+        status:
+          type: integer
+          description: Dezelfde HTTP-statuscode als van de response.
+          example: 200
+        status_message: { type: string, example: "OK" }
+    ListMeta:
+      allOf:
+        - $ref: "#/components/schemas/Meta"
+        - type: object
+          required: [count]
+          properties:
+            count:
+              type: integer
+              description: Aantal records in `data`.
+              example: 20
+    ListEnvelope:
+      type: object
+      required: [meta, data]
+      properties:
+        meta: { $ref: "#/components/schemas/ListMeta" }
+    ErrorResponse:
+      type: object
+      required: [meta, error]
+      properties:
+        meta: { $ref: "#/components/schemas/Meta" }
+        error:
+          type: object
+          required: [message]
+          properties:
+            message:
+              type: string
+              description: Algemene foutmelding, geschikt om aan de gebruiker te tonen.
+            details:
+              type: object
+              description: |
+                Alleen bij `422`: per veld de foutmelding. Bij een PATCH zonder bekende velden
+                staat de melding onder de sleutel `body`.
+              additionalProperties: { type: string }
+
+  headers:
+    Location:
+      description: Volledige URL van het nieuwe record, bijv. `https://forum-api-vb.local/threads/23`.
+      schema: { type: string, format: uri }
+
+  responses:
+    ThreadSingle:
+      description: De thread.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              meta: { $ref: "#/components/schemas/Meta" }
+              data: { $ref: "#/components/schemas/Thread" }
+    ThreadCreated:
+      description: Thread aangemaakt. De response bevat de nieuwe thread, inclusief `id`.
+      headers:
+        Location: { $ref: "#/components/headers/Location" }
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              meta: { $ref: "#/components/schemas/Meta" }
+              data: { $ref: "#/components/schemas/Thread" }
+    TopicSingle:
+      description: Het topic.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              meta: { $ref: "#/components/schemas/Meta" }
+              data: { $ref: "#/components/schemas/Topic" }
+    TopicCreated:
+      description: Topic aangemaakt. De response bevat het nieuwe topic, inclusief `id`.
+      headers:
+        Location: { $ref: "#/components/headers/Location" }
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              meta: { $ref: "#/components/schemas/Meta" }
+              data: { $ref: "#/components/schemas/Topic" }
+    ReplySingle:
+      description: De reply.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              meta: { $ref: "#/components/schemas/Meta" }
+              data: { $ref: "#/components/schemas/Reply" }
+    ReplyCreated:
+      description: Reply aangemaakt. De response bevat de nieuwe reply, inclusief `id`.
+      headers:
+        Location: { $ref: "#/components/headers/Location" }
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              meta: { $ref: "#/components/schemas/Meta" }
+              data: { $ref: "#/components/schemas/Reply" }
+
+    Deleted:
+      description: Verwijderd. Deze response heeft **geen body**.
+
+    InvalidId:
+      description: Het id in de URL is geen positief geheel getal, bijv. `/threads/abc`.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            meta: { api_version: "1.0", api_name: forum_api, status: 400, status_message: Bad Request }
+            error: { message: Het id moet een positief geheel getal zijn. }
+    InvalidJson:
+      description: De body is geen geldige JSON.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            meta: { api_version: "1.0", api_name: forum_api, status: 400, status_message: Bad Request }
+            error: { message: De body bevat geen geldige JSON. }
+    InvalidIdOrJson:
+      description: Het id in de URL is ongeldig, of de body is geen geldige JSON.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            meta: { api_version: "1.0", api_name: forum_api, status: 400, status_message: Bad Request }
+            error: { message: De body bevat geen geldige JSON. }
+    NotFound:
+      description: Er bestaat geen record met dit id.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            meta: { api_version: "1.0", api_name: forum_api, status: 404, status_message: Not Found }
+            error: { message: Thread 99 bestaat niet. }
+    ValidationError:
+      description: |
+        De invoer is niet geldig. Per veld staat de fout in `error.details`. Mogelijke meldingen:
+        het veld is verplicht, moet tekst zijn, moet een positief geheel getal zijn, is te lang,
+        of verwijst naar een thread/topic die niet bestaat.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          examples:
+            verplichtVeld:
+              summary: Verplicht veld ontbreekt
+              value:
+                meta: { api_version: "1.0", api_name: forum_api, status: 422, status_message: Unprocessable Content }
+                error:
+                  message: De invoer is niet geldig.
+                  details: { title: Het veld title is verplicht. }
+            bestaatNiet:
+              summary: Verwijzing naar een record dat niet bestaat
+              value:
+                meta: { api_version: "1.0", api_name: forum_api, status: 422, status_message: Unprocessable Content }
+                error:
+                  message: De invoer is niet geldig.
+                  details: { thread_id: "Het veld thread_id verwijst naar id 999, maar dat bestaat niet." }
+            legePatch:
+              summary: PATCH zonder bekende velden
+              value:
+                meta: { api_version: "1.0", api_name: forum_api, status: 422, status_message: Unprocessable Content }
+                error:
+                  message: De invoer is niet geldig.
+                  details: { body: "Stuur minstens één van deze velden mee: title, content, user_id." }
+    ServerError:
+      description: Er ging iets mis op de server. De echte fout staat in de error-log van de server.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            meta: { api_version: "1.0", api_name: forum_api, status: 500, status_message: Internal Server Error }
+            error: { message: Er ging iets mis op de server. Probeer het later opnieuw. }

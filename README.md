@@ -29,6 +29,8 @@ forum-api/
 ├── .htaccess                 Stuurt elke URL door naar index.php (resource + id)
 ├── index.php                 Startpunt: laadt de routes en de RequestHandler
 ├── forum_api_vb.sql          Database met testdata
+├── openapi.yaml              API-documentatie (OpenAPI 3)
+├── docs/index.html           Swagger UI voor openapi.yaml
 └── app/
     ├── Routes/routes.php     Koppelt methode + URL aan controller + methode
     ├── Http/
@@ -45,6 +47,15 @@ forum-api/
 2. `RequestHandler` maakt daar de route-sleutel `threads/{id}` van en zoekt die op in `routes.php`.
 3. De controller-methode wordt aangeroepen, bijvoorbeeld `ThreadController::show(5)`.
 4. De controller haalt de data op via het model en stuurt die terug met `ApiResponse`.
+
+## Documentatie voor frontend developers
+
+De volledige API-documentatie staat in `openapi.yaml`. Je kunt die op twee manieren bekijken:
+
+- **In de browser:** open [`https://forum-api-vb.local/docs/`](https://forum-api-vb.local/docs/). Met **Try it out** kun je per endpoint direct een request uitvoeren. Let op: dat zijn echte requests op de database.
+- **In Bruno of Postman:** importeer `openapi.yaml` als collectie.
+
+Pas je de API aan, werk dan ook `openapi.yaml` bij.
 
 ## Endpoints
 
